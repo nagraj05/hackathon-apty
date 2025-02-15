@@ -2,17 +2,46 @@ let sites = {};
 let activeTab = null;
 let startTime = null;
 
-const categories = {
-  "Social Media": [
-    "facebook.com",
-    "twitter.com",
-    "instagram.com",
-    "linkedin.com",
-    "x.com",
-  ],
-  Work: ["github.com", "notion.so", "slack.com", "figma.com"],
-  News: ["bbc.com", "cnn.com", "nytimes.com", "theguardian.com"],
+let adBlockEnabled = true;
+let blockedCount = 0;
+let blockingRules = {
+  images: true,
+  popups: true,
+  trackers: true,
+  social: true
 };
+
+const categories = {
+  "Social Media": ["facebook.com", "twitter.com", "instagram.com", "linkedin.com","x.com"],
+  "Work": ["github.com", "notion.so", "slack.com", "figma.com"],
+  "News": ["bbc.com", "cnn.com", "nytimes.com", "theguardian.com"]
+};
+
+const adDomains = [
+  "doubleclick.net",
+  "googlesyndication.com",
+  "adservice.google",
+  "googleadservices.com",
+  "moatads.com",
+  "adnxs.com",
+  "facebook.com/tr",
+  "facebook.net",
+  "ads.pubmatic.com",
+  "adsystem.com",
+  "taboola.com",
+  "outbrain.com"
+];
+
+chrome.storage.local.get(["adBlockEnabled", "blockedCount", "blockingRules"], (result) => {
+  adBlockEnabled = result.adBlockEnabled !== undefined ? result.adBlockEnabled : true;
+  blockedCount = result.blockedCount || 0;
+  blockingRules = result.blockingRules || {
+    images: true,
+    popups: true,
+    trackers: true,
+    social: true
+  };
+});
 
 function trackTime() {
   if (activeTab && startTime) {
@@ -99,11 +128,84 @@ function restoreSession() {
   });
 }
 
-chrome.tabs.onUpdated.addListener(categorizeTabs);
-chrome.tabs.onRemoved.addListener(categorizeTabs);
+// Ad blocking functions
+function shouldBlockRequest(details) {
+  if (!adBlockEnabled) return false;
+  
+  try {
+    const url = new URL(details.url);
+    const domain = url.hostname;
+    
+    if (adDomains.some(adDomain => domain.includes(adDomain))) {
+      incrementBlockedCount();
+      return true;
+    }
+    
+    if (details.type === 'image' && blockingRules.images && 
+        (url.pathname.includes('ad') || url.pathname.includes('banner'))) {
+      incrementBlockedCount();
+      return true;
+    }
+    
+    if (details.type === 'script' && blockingRules.trackers && 
+        (url.pathname.includes('tracking') || url.pathname.includes('analytics'))) {
+      incrementBlockedCount();
+      return true;
+    }
+    
+    if (blockingRules.social && 
+        (domain.includes('facebook') || domain.includes('twitter') || 
+         domain.includes('linkedin') || domain.includes('instagram'))) {
+      incrementBlockedCount();
+      return true;
+    }
+  } catch (e) {
+    console.error("Error processing URL in ad blocker:", details.url);
+  }
+  
+  return false;
+}
 
-// Listen for messages from popup
+function incrementBlockedCount() {
+  blockedCount++;
+  chrome.storage.local.set({ blockedCount });
+}
+
+if (chrome.webRequest) {
+  chrome.webRequest.onBeforeRequest.addListener(
+    function(details) {
+      return { cancel: shouldBlockRequest(details) };
+    },
+    { urls: ["<all_urls>"] },
+    ["blocking"]
+  );
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "saveSession") saveSession();
   if (message.action === "restoreSession") restoreSession();
+  
+  if (message.type === "TOGGLE_AD_BLOCK") {
+    adBlockEnabled = message.enabled;
+    chrome.storage.local.set({ adBlockEnabled });
+  }
+  
+  if (message.type === "UPDATE_BLOCKING_RULES") {
+    blockingRules = message.rules;
+    chrome.storage.local.set({ blockingRules });
+  }
+});
+
+categorizeTabs();
+
+chrome.runtime.onConnect.addListener(function(port) {
+  if (port.name === "popup") {
+    port.onDisconnect.addListener(function() {
+      chrome.storage.local.set({
+        adBlockEnabled,
+        blockedCount,
+        blockingRules
+      });
+    });
+  }
 });

@@ -2,7 +2,15 @@
   "manifest_version": 3,
   "name": "APTY Hackaton Extension",
   "version": "1.0",
-  "permissions": ["storage", "activeTab", "tabs","sessions","tabGroups"],
+ "permissions": [
+    "storage",
+    "tabs",
+    "webRequest",
+    "declarativeNetRequest"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
   "background": {
     "service_worker": "background.js"
   },
@@ -10,7 +18,7 @@
     "default_popup": "index.html",
     "default_icon": {
       
-      "128": "./images/16.png"
+      "128": "./images/a.png"
     }
   }
 }
