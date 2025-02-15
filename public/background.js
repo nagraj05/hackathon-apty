@@ -63,14 +63,12 @@ function categorizeTabs() {
   });
 }
 
-// Function to save session
 function saveSession() {
   chrome.tabs.query({}, (tabs) => {
     chrome.storage.local.set({ savedSession: tabs });
   });
 }
 
-// Function to restore session
 function restoreSession() {
   chrome.storage.local.get(["savedSession"], (result) => {
     if (result.savedSession) {
@@ -81,7 +79,6 @@ function restoreSession() {
   });
 }
 
-// Categorize tabs when opened or closed
 chrome.tabs.onUpdated.addListener(categorizeTabs);
 chrome.tabs.onRemoved.addListener(categorizeTabs);
 
@@ -89,4 +86,29 @@ chrome.tabs.onRemoved.addListener(categorizeTabs);
 chrome.runtime.onMessage.addListener((message) => {
   if (message.action === "saveSession") saveSession();
   if (message.action === "restoreSession") restoreSession();
+});
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === "SAVE_NOTE") {
+    chrome.storage.local.get(["notes"], (result) => {
+      const notes = result.notes || [];
+      if (message.index !== undefined) {
+        notes[message.index] = message.note;
+      } else {
+        notes.push(message.note);
+      }
+      chrome.storage.local.set({ notes });
+    });
+  } else if (message.type === "GET_NOTES") {
+    chrome.storage.local.get(["notes"], (result) => {
+      sendResponse({ notes: result.notes || [] });
+    });
+    return true;
+  } else if (message.type === "DELETE_NOTE") {
+    chrome.storage.local.get(["notes"], (result) => {
+      const notes = result.notes || [];
+      notes.splice(message.index, 1);
+      chrome.storage.local.set({ notes });
+    });
+  }
 });

@@ -1,8 +1,13 @@
 import { useEffect, useState } from "react";
+import { Button } from "./components/ui/button";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "./components/ui/tabs";
 
 const App = () => {
   const [sites, setSites] = useState({});
   const [groups, setGroups] = useState({});
+  const [notes, setNotes] = useState([]);
+  const [currentNote, setCurrentNote] = useState("");
+  const [editIndex, setEditIndex] = useState(null);
 
   useEffect(() => {
     chrome.storage.local.get(["groupedTabs"], (result) => {
@@ -11,14 +16,6 @@ const App = () => {
       }
     });
   }, []);
-
-  const saveSession = () => {
-    chrome.runtime.sendMessage({ action: "saveSession" });
-  };
-
-  const restoreSession = () => {
-    chrome.runtime.sendMessage({ action: "restoreSession" });
-  };
 
   useEffect(() => {
     if (typeof chrome !== "undefined" && chrome.storage) {
@@ -30,46 +27,77 @@ const App = () => {
     }
   }, []);
 
-  const resetData = () => {
-    setSites({});
-    if (typeof chrome !== "undefined" && chrome.storage) {
-      chrome.storage.local.set({ sites: {} });
+  useEffect(() => {
+    chrome.runtime.sendMessage({ type: "GET_NOTES" }, (response) => {
+      setNotes(response?.notes || []);
+    });
+  }, []);
+
+  const saveNote = () => {
+    if (!currentNote.trim()) return;
+    chrome.runtime.sendMessage({
+      type: "SAVE_NOTE",
+      note: currentNote,
+      index: editIndex,
+    });
+    if (editIndex === null) {
+      setNotes([...notes, currentNote]);
+    } else {
+      const updatedNotes = [...notes];
+      updatedNotes[editIndex] = currentNote;
+      setNotes(updatedNotes);
     }
+    setCurrentNote("");
+    setEditIndex(null);
   };
 
-  return (
-    <div className="p-4 w-64">
-      <h2 className="text-lg font-bold">APTY Hackathon</h2>
-      <div className="mt-3">
-        <h3>Productivity Tracker</h3>
-        <table className="mt-2 w-full border">
-          <thead>
-            <tr>
-              <th className="border p-2">Website</th>
-              <th className="border p-2">Time (min)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {Object.entries(sites).map(([site, time]) => (
-              <tr key={site}>
-                <td className="border p-2">{site}</td>
-                <td className="border p-2">{(time / 60000).toFixed(2)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <button
-          className="mt-4 bg-red-500 text-white px-4 py-2 rounded"
-          onClick={resetData}
-        >
-          Reset Data
-        </button>
+  const deleteNote = (index) => {
+    chrome.runtime.sendMessage({ type: "DELETE_NOTE", index });
+    setNotes(notes.filter((_, i) => i !== index));
+  };
 
-        <div className="mt-4">
-          <h2 className="text-lg font-bold">Tab Manager</h2>
+  const editNote = (index) => {
+    setCurrentNote(notes[index]);
+    setEditIndex(index);
+  };
+
+
+  return (
+    <div className="p-4 w-72">
+      <h2 className="text-xl font-bold mb-4">APTY Hackathon</h2>
+      <Tabs defaultValue="tracker" className="w-full">
+        <TabsList className="grid grid-cols-3 mb-4">
+          <TabsTrigger value="tracker">Tracker</TabsTrigger>
+          <TabsTrigger value="notes">Notes</TabsTrigger>
+          <TabsTrigger value="tabs">Tabs</TabsTrigger>
+        </TabsList>
+        
+        <TabsContent value="tracker">
+          <h3 className="font-bold">Productivity Tracker</h3>
+          <table className="mt-2 w-full border">
+            <thead>
+              <tr>
+                <th className="border p-2">Website</th>
+                <th className="border p-2">Time (min)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(sites).map(([site, time]) => (
+                <tr key={site}>
+                  <td className="border p-2">{site}</td>
+                  <td className="border p-2">{(time / 60000).toFixed(2)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <Button className="mt-2" onClick={() => setSites({})}>Reset Data</Button>
+        </TabsContent>
+        
+        <TabsContent value="tabs">
+          <h3 className="font-bold">Tab Manager</h3>
           {Object.entries(groups).map(([category, tabs]) => (
             <div key={category}>
-              <h3 className="font-bold mt-2">{category}</h3>
+              <h4 className="mt-2 font-semibold">{category}</h4>
               <ul className="list-disc ml-4">
                 {tabs.map((tab, index) => (
                   <li key={index}>{tab.title}</li>
@@ -77,20 +105,35 @@ const App = () => {
               </ul>
             </div>
           ))}
-          <button
-            className="mt-4 bg-blue-500 text-white px-4 py-2 rounded"
-            onClick={saveSession}
-          >
-            Save
-          </button>
-          <button
-            className="mt-2 bg-green-500 text-white px-4 py-2 rounded"
-            onClick={restoreSession}
-          >
-            Restore
-          </button>
-        </div>
-      </div>
+          <div className="flex gap-2 mt-3">
+            <Button onClick={() => chrome.runtime.sendMessage({ action: "saveSession" })}>Save</Button>
+            <Button onClick={() => chrome.runtime.sendMessage({ action: "restoreSession" })}>Restore</Button>
+          </div>
+        </TabsContent>
+        
+        <TabsContent value="notes">
+          <h3 className="font-bold">Smart Notes</h3>
+          <textarea
+            className="w-full h-20 border rounded mt-2"
+            value={currentNote}
+            onChange={(e) => setCurrentNote(e.target.value)}
+          />
+          <Button className="mt-2" onClick={saveNote}>
+            {editIndex !== null ? "Update" : "Save"}
+          </Button>
+          <ul className="mt-4">
+            {notes.map((note, index) => (
+              <li key={index} className="border p-2 mt-2 rounded flex justify-between items-center">
+                {note}
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={() => editNote(index)}>Edit</Button>
+                  <Button variant="destructive" size="sm" onClick={() => deleteNote(index)}>Delete</Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 };
