@@ -3,9 +3,15 @@ let activeTab = null;
 let startTime = null;
 
 const categories = {
-  "Social Media": ["facebook.com", "twitter.com", "instagram.com", "linkedin.com","x.com"],
-  "Work": ["github.com", "notion.so", "slack.com", "figma.com"],
-  "News": ["bbc.com", "cnn.com", "nytimes.com", "theguardian.com"]
+  "Social Media": [
+    "facebook.com",
+    "twitter.com",
+    "instagram.com",
+    "linkedin.com",
+    "x.com",
+  ],
+  Work: ["github.com", "notion.so", "slack.com", "figma.com"],
+  News: ["bbc.com", "cnn.com", "nytimes.com", "theguardian.com"],
 };
 
 function trackTime() {
@@ -22,8 +28,12 @@ if (typeof chrome !== "undefined" && chrome.tabs) {
     trackTime();
     chrome.tabs.get(activeInfo.tabId, (tab) => {
       if (tab && tab.url) {
-        activeTab = new URL(tab.url).hostname;
-        startTime = Date.now();
+        try {
+          activeTab = new URL(tab.url).hostname;
+          startTime = Date.now();
+        } catch (e) {
+          console.error("Invalid URL:", tab.url);
+        }
       }
     });
   });
@@ -31,8 +41,12 @@ if (typeof chrome !== "undefined" && chrome.tabs) {
   chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     if (changeInfo.url) {
       trackTime();
-      activeTab = new URL(changeInfo.url).hostname;
-      startTime = Date.now();
+      try {
+        activeTab = new URL(changeInfo.url).hostname;
+        startTime = Date.now();
+      } catch (e) {
+        console.error("Invalid URL:", changeInfo.url);
+      }
     }
   });
 
@@ -50,11 +64,17 @@ function categorizeTabs() {
     let groupedTabs = {};
 
     tabs.forEach((tab) => {
-      for (const [category, sites] of Object.entries(categories)) {
-        if (sites.some((site) => tab.url.includes(site))) {
-          if (!groupedTabs[category]) groupedTabs[category] = [];
-          groupedTabs[category].push(tab);
-          break;
+      if (tab.url) {
+        for (const [category, sites] of Object.entries(categories)) {
+          try {
+            if (sites.some((site) => tab.url.includes(site))) {
+              if (!groupedTabs[category]) groupedTabs[category] = [];
+              groupedTabs[category].push(tab);
+              break;
+            }
+          } catch (e) {
+            console.error("Error processing tab:", tab.url);
+          }
         }
       }
     });
@@ -83,32 +103,7 @@ chrome.tabs.onUpdated.addListener(categorizeTabs);
 chrome.tabs.onRemoved.addListener(categorizeTabs);
 
 // Listen for messages from popup
-chrome.runtime.onMessage.addListener((message) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "saveSession") saveSession();
   if (message.action === "restoreSession") restoreSession();
-});
-
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type === "SAVE_NOTE") {
-    chrome.storage.local.get(["notes"], (result) => {
-      const notes = result.notes || [];
-      if (message.index !== undefined) {
-        notes[message.index] = message.note;
-      } else {
-        notes.push(message.note);
-      }
-      chrome.storage.local.set({ notes });
-    });
-  } else if (message.type === "GET_NOTES") {
-    chrome.storage.local.get(["notes"], (result) => {
-      sendResponse({ notes: result.notes || [] });
-    });
-    return true;
-  } else if (message.type === "DELETE_NOTE") {
-    chrome.storage.local.get(["notes"], (result) => {
-      const notes = result.notes || [];
-      notes.splice(message.index, 1);
-      chrome.storage.local.set({ notes });
-    });
-  }
 });
